@@ -1,61 +1,101 @@
 #!/usr/bin/python
 
-import json
+import json, re
+import string
 from nltk.corpus import stopwords
 from nltk.stem.snowball import SnowballStemmer
+from nltk import PorterStemmer
 from bs4 import BeautifulSoup
+import time
+from collections import Counter
 
-def getStemmedWords(html_tokenised):
-	
-	stemmed_words=[]
-	stemmer = SnowballStemmer("english")
-	
-	for token in html_tokenised:
-		stemmed_words.append(stemmer.stem(token))
+class Preprocessor:
+    """Class to preprocess data"""
+    def __init__(self, data):
+        self.data = data
 
-	return stemmed_words
+    def getStemmedWords(self,html):
+        
+        stemmed_words=[]
+        #stemmer = SnowballStemmer("english")
+        stemmer = PorterStemmer()
+        for token in html:
+            stemmed_words.append(stemmer.stem_word(token))
+            
+        return ' '.join(stemmed_words)
 
-def remove_stopwords(html) :
+    def remove_stopwords(self,html) :
 
-	tokens = html.split()
+        tokens = html.split()
+        #stops = stopwords.words('english')
+        stops = Counter(stopwords.words('english'))
 
-	html_filtered = [word for word in tokens if word not in stopwords.words('english')]
+        html_filtered = [word for word in tokens if stops[word] != 1]
 
-def get_text(html) :
+        return html_filtered
 
-	soup = BeautifulSoup(html)
+    def get_text(self,html) :
 
-	text = soup.get_text().lower()
+        soup = BeautifulSoup(html)
+        
+        try :        
+            page_title = soup.title.string
+        except Exception as e:
+            page_title = ""
+        
+        for script in soup(['style', 'script', '[document]', 'head', 'title']) :
+            script.extract()
 
-	text = text.replace('\n',' ')
+        text = soup.get_text()
+        
+        text = text.lower().strip(' \t\n\r')
+        
+        text = text.replace('\t','')
+        text = text.replace('\n','')
+        text = text.replace('\r','')
+        
+        text = text.encode(encoding="ascii", errors="ignore")
 
-	return text
+        return (page_title,text)
 
-def preprocessor(urls_input) :
+    def remove_punctuation(self,html) :
 
-	urls_and_text = json.loads(open(urls_input, "r").read())
+        html_unpunctuated = ""
 
-	for url_entry in urls_and_text :
-		url = url_entry['url']
-		html = url_entry['html']
+        for letter in html :
+            if letter not in string.punctuation :
+                html_unpunctuated += letter
 
-		html_text = get_text(html)
-		
-		html_tokenised = remove_stopwords(html_text)
+        return html_unpunctuated
 
-		html_stemmed = getStemmedWords(html_tokenised)
+    def preprocessor_main(self) :
 
-	for host in hosts :
-		urls_for_host = json.loads(open("urls_per_host/"+host,"r").read())
-		
-		for url_entry in urls_for_host :
-			url = url_entry['url']
-			#title = url_entry['title']
-			html = url_entry['html']
-
-			if compute_relevance(url,html,query) == True :
-				classified_output.write(url+","+"true"+"\n")
-				count_true += 1
-			else :
-				classified_output.write(url+","+"false"+"\n")
- 				count_false += 1
+        data_processed = []
+        for index in range(len(self.data)) :
+            url = self.data[index]['url']
+            html = self.data[index]['html']
+            
+            title,html_raw,html_stemmed = self.preprocess(html)
+            
+            if len(html_stemmed) >= 100 :
+                self.data[index]['url'] = self.data[index]['url'].encode(encoding='ascii',errors='ignore')
+                self.data[index]['html'] = html_stemmed
+                self.data[index]['raw_html'] = html_raw
+                self.data[index]['title'] = title
+                data_processed.append(self.data[index])
+        
+        self.data = data_processed
+        
+    def preprocess(self, html) :
+        
+        page_title,html_text = self.get_text(html)
+        
+        html_unpunctuated = self.remove_punctuation(html_text)
+        
+        html_tokenised = self.remove_stopwords(html_unpunctuated)
+        
+        html_stemmed = self.getStemmedWords(html_tokenised)
+        
+        html_stemmed = html_stemmed.encode(encoding='ascii', errors='ignore')
+        
+        return (page_title,html_text,html_stemmed)
